@@ -532,3 +532,86 @@ for train, test in ps.split():
 
     score = model.score(test_data, test_label)
     print(score)
+
+    predict = model.predict(test_data)
+    predict_prob = model.predict_proba(test_data)
+
+    # set up confusion matrix
+    true_values = np.asarray([np.sum(test_label == i) for i in [0,1]])
+    print(true_values)
+    cm = (
+            confusion_matrix(test_label, predict, labels=list([0,1]))
+            / true_values[:, None]
+            * 100
+    )
+    print(cm)
+
+# %%
+ps = PredefinedSplit(subject_sample)
+for train, test in ps.split():
+    train_data = bold_data[train]
+    test_data = bold_data[test]
+    train_label = group_labels[train]
+    test_label = group_labels[test]
+
+    Fselect_fpr = SelectFpr(f_classif, alpha=0.05).fit(train_data, train_label)
+    bold_train_subject = Fselect_fpr.transform(train_data)
+    bold_test_subject = Fselect_fpr.transform(test_data)
+    print(bold_train_subject.shape)
+    print(bold_test_subject.shape)
+
+    #model = LogisticRegression(penalty='l2' ,solver='lbfgs')
+
+
+# %%
+# this will restrict us to only suppress trials
+suppress_only = [3]
+labels_df = labels_df[labels_df['condition'].isin(suppress_only)]
+
+operation_list = labels_df["condition"]
+stim_onscreen = labels_df["stim_present"]
+run_list = labels_df["run"]
+
+# define operation period
+operation_index = np.where(np.logical_or(stim_onscreen == 2, stim_onscreen == 3))[0]
+rest_index = []
+runs = run_list.unique()[1:]
+
+operation_val = operation_list.values[operation_index]
+run_val = run_list.values[operation_index]
+
+# we want the first half of each run for feature selection
+bold_data = []
+operation_sample = operation_val
+
+sub_loop = 0
+for sub in subIDs:
+    print(sub)
+    bold = full_data[f"{sub}"][operation_index]
+
+    if sub_loop == 0:
+        bold_data = bold
+        print(bold_data.shape)
+        sub_loop = sub_loop + 1
+    else:
+        bold_data = np.concatenate((bold_data, bold))
+        print(bold_data.shape)
+
+subject_sample = np.repeat(range(0, 5), 300)
+op_labels = np.tile(operation_sample, 5)
+
+# here I am manually setting the group (good vs. bad) based on memory analyses at the end of the script
+# 0: bad suppressor;  1: good suppresor
+sub_004_group = np.ones(300)
+sub_005_group = np.ones(300)
+sub_006_group = np.zeros(300)
+sub_024_group = np.ones(300)
+sub_026_group = np.zeros(300)
+
+group_labels = np.concatenate((sub_004_group, sub_005_group, sub_006_group, sub_024_group, sub_026_group))
+
+print(bold_data.shape)
+print(group_labels.shape)
+print(subject_sample.shape)
+
+print(op_labels)
