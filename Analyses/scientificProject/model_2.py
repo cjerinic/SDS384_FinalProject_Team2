@@ -562,24 +562,41 @@ for train, test in ps.split():
 
     #model = LogisticRegression(penalty='l2' ,solver='lbfgs')
 
+# %%
+full_data = {}
+    for sub in subIDs:
+        full_data[f"{sub}"], _ = load_data(
+            directory=data_path,
+            subject_name=sub,
+            mask_name="wholebrain",
+            zscore_data=True,
+        )
+
+stim_labels_allruns = get_shifted_labels(task="study", shift_size_TR=shift_TR)
 
 # %%
 # this will restrict us to only suppress trials
+labels_df = stim_labels_allruns
 suppress_only = [3]
 labels_df = labels_df[labels_df['condition'].isin(suppress_only)]
+labels_df = labels_df.reset_index(drop=True)
+
 
 operation_list = labels_df["condition"]
 stim_onscreen = labels_df["stim_present"]
 run_list = labels_df["run"]
+
 
 # define operation period
 operation_index = np.where(np.logical_or(stim_onscreen == 2, stim_onscreen == 3))[0]
 rest_index = []
 runs = run_list.unique()[1:]
 
+
 operation_val = operation_list.values[operation_index]
 run_val = run_list.values[operation_index]
 
+# %%
 # we want the first half of each run for feature selection
 bold_data = []
 operation_sample = operation_val
@@ -600,6 +617,7 @@ for sub in subIDs:
 subject_sample = np.repeat(range(0, 5), 300)
 op_labels = np.tile(operation_sample, 5)
 
+# %%
 # here I am manually setting the group (good vs. bad) based on memory analyses at the end of the script
 # 0: bad suppressor;  1: good suppresor
 sub_004_group = np.ones(300)
@@ -608,10 +626,55 @@ sub_006_group = np.zeros(300)
 sub_024_group = np.ones(300)
 sub_026_group = np.zeros(300)
 
+sub_006_group[sub_006_group == 0] = 2
+sub_026_group[sub_026_group == 0] = 2
+
 group_labels = np.concatenate((sub_004_group, sub_005_group, sub_006_group, sub_024_group, sub_026_group))
 
+# %%
 print(bold_data.shape)
 print(group_labels.shape)
 print(subject_sample.shape)
 
 print(op_labels)
+
+
+# %%
+from sklearn.model_selection import PredefinedSplit
+from sklearn.svm import SVC
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+
+
+scores = []
+decision_scores = []
+test_labels = []
+pred_probs = []
+confusion_matrices = []
+# aucs = []
+evidences = []
+# roc_aucs = []
+
+ps = PredefinedSplit(subject_sample)
+for train, test in ps.split():
+    train_data = bold_data[train]
+    test_data = bold_data[test]
+    train_label = group_labels[train]
+    test_label = group_labels[test]
+
+    # feature selection
+    #Fselect_fpr = SelectFpr(f_classif, alpha=0.001).fit(train_data, train_label)
+    #bold_train_subject = Fselect_fpr.transform(train_data)
+    # bold_test_subject = Fselect_fpr.transform(test_data)
+
+    svm = SVC(kernel='linear')  # You can choose different kernels: 'linear', 'rbf', 'poly', etc.
+    svm.fit(train_data, train_label)
+
+    # Predictions
+    predictions = svm.predict(test_data)
+    scores.append(accuracy_score(test_label, predictions))
+    decision_scores.append(svm.decision_function(test_data))
+    test_labels.append(test_label)
+    #pred_probs.append(svm.predict_proba(test_data))
+    confusion_matrices.append(confusion_matrix(test_label, predictions))
+    evidences.append(svm.decision_function(test_data))
+
