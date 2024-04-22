@@ -229,6 +229,10 @@ def betweenSub_operation_sample(full_data, labels_df):
     # operations IDs - 1: maintain, 2: replace, 3: suppress
     # stim on screen - 1: image, 2: operation, 3: ITI
 
+    # this will restrict us to only suppress trials
+    suppress_only = [3]
+    labels_df = labels_df[labels_df['condition'].isin(suppress_only)]
+
     operation_list = labels_df["condition"]
     stim_onscreen = labels_df["stim_present"]
     run_list = labels_df["run"]
@@ -247,41 +251,67 @@ def betweenSub_operation_sample(full_data, labels_df):
 
     sub_loop = 0
     for sub in subIDs:
+        print(sub)
         bold = full_data[f"{sub}"][operation_index]
 
         if sub_loop == 0:
             bold_data = bold
+            print(bold_data.shape)
             sub_loop = sub_loop + 1
         else:
             bold_data = np.concatenate((bold_data, bold))
+            print(bold_data.shape)
 
-    subject_sample = np.repeat(range(0, 5), 900)
+    subject_sample = np.repeat(range(0, 5), 300)
     op_labels = np.tile(operation_sample, 5)
 
-    return bold_data, op_labels, subject_sample
+    # here I am manually setting the group (good vs. bad) based on memory analyses at the end of the script
+    # 0: bad suppressor;  1: good suppresor
+    sub_004_group = np.ones(300)
+    sub_005_group = np.ones(300)
+    sub_006_group = np.zeros(300)
+    sub_024_group = np.ones(300)
+    sub_026_group = np.zeros(300)
+
+    group_labels = np.concatenate((sub_004_group, sub_005_group, sub_006_group, sub_024_group, sub_026_group))
+
+    print(bold_data.shape)
+    print(group_labels.shape)
+    print(subject_sample.shape)
+
+    print(op_labels)
+
+    return bold_data, group_labels, subject_sample
 
 # %% set up decoder
-def betweenSub_decode_model(bold_data, op_labels, subject_sample):
+def betweenSub_decode_model(bold_data, group_labels, subject_sample):
     scores = []
     decision_scores = []
     test_labels = []
     pred_probs = []
     confusion_matrices = []
-    aucs = []
+    #aucs = []
     evidences = []
-    roc_aucs = []
+    #roc_aucs = []
 
     ps = PredefinedSplit(subject_sample)
     for train, test in ps.split():
         train_data = bold_data[train]
         test_data = bold_data[test]
-        train_label = op_labels[train]
-        test_label = op_labels[test]
+        train_label = group_labels[train]
+        test_label = group_labels[test]
+        print(train_data.shape)
 
         # feature selection
-        Fselect_fpr = SelectFpr(f_classif, alpha=0.001).fit(train_data, train_label)
-        bold_train_subject = Fselect_fpr.transform(train_data)
-        bold_test_subject = Fselect_fpr.transform(test_data)
+        #Fselect_fpr = SelectFpr(f_classif, alpha=0.001).fit(train_data, train_label)
+        #bold_train_subject = Fselect_fpr.transform(train_data)
+        #bold_test_subject = Fselect_fpr.transform(test_data)
+
+        bold_train_subject = train_data
+        bold_test_subject = test_data
+
+        print(bold_train_subject.shape)
+        print(bold_test_subject.shape)
 
         # train with selected penalty
         log_reg = LogisticRegression(penalty="l2", solver="lbfgs", C=50, max_iter=1000)
@@ -292,54 +322,53 @@ def betweenSub_decode_model(bold_data, op_labels, subject_sample):
         decision_score = log_reg.decision_function(bold_test_subject)
 
         classes = np.unique(test_label).size
-        print(classes)
 
         # calculate auc for each operation
-        fpr = dict()
-        tpr = dict()
-        roc_auc = dict()
-        for i in range(classes):
-            temp_label = np.zeros(test_label.size)
-            label_index = np.where(test_label == (i + 1))
-            temp_label[label_index] = 1
+        #fpr = dict()
+        #tpr = dict()
+        #roc_auc = dict()
+        #for i in range(classes):
+            #temp_label = np.zeros(test_label.size)
+            #label_index = np.where(test_label == (i + 1))
+            #temp_label[label_index] = 1
 
-            fpr[i], tpr[i], _ = roc_curve(temp_label, decision_score[:, i])
-            roc_auc[i] = auc(fpr[i], tpr[i])
+            #fpr[i], tpr[i], _ = roc_curve(temp_label, decision_score[:, i])
+            #roc_auc[i] = auc(fpr[i], tpr[i])
 
         # compute auc
-        auc_score = roc_auc_score(
-            test_label, log_reg.predict_proba(bold_test_subject), multi_class="ovr"
-        )
+        #auc_score = roc_auc_score(
+            #test_label, log_reg.predict_proba(bold_test_subject), multi_class="ovr"
+        #)
 
         # get predicted scores
         predict = log_reg.predict(bold_test_subject)
         predict_prob = log_reg.predict_proba(bold_test_subject)
 
         # set up confusion matrix
-        true_values = np.asarray([np.sum(test_label == i) for i in [1, 2, 3]])
+        true_values = np.asarray([np.sum(test_label == i) for i in [0, 1]])
         print(true_values)
         cm = (
-            confusion_matrix(test_label, predict, labels=list([1, 2, 3]))
+            confusion_matrix(test_label, predict, labels=list([0, 1]))
             / true_values[:, None]
             * 100
         )
 
         scores.append(score)
-        aucs.append(auc_score)
+        #aucs.append(auc_score)
         confusion_matrices.append(cm)
 
         evidence = 1.0 / (1.0 + np.exp(-log_reg.decision_function(bold_test_subject)))
         evidences.append(evidence)
 
-        roc_aucs.append(roc_auc)
+        #roc_aucs.append(roc_auc)
 
         test_labels.append(test_label)
         pred_probs.append(predict_prob)
         decision_scores.append(decision_score)
 
-    roc_aucs = pd.DataFrame(data=roc_aucs)
+    #roc_aucs = pd.DataFrame(data=roc_aucs)
     scores = np.asarray(scores)
-    aucs = np.asarray(aucs)
+    #aucs = np.asarray(aucs)
     confusion_matrices = np.stack(confusion_matrices)
     evidences = np.stack(evidences)
 
@@ -350,19 +379,19 @@ def betweenSub_decode_model(bold_data, op_labels, subject_sample):
     print(
         f"\nClassifier score: \n"
         f"scores: {scores.mean()} sd: {scores.std()}\n"
-        f"auc scores: {aucs.mean()} sd: {aucs.std()}\n"
+        #f"auc scores: {aucs.mean()} sd: {aucs.std()}\n"
         f"average confusion matrix:\n"
         f"{confusion_matrices.mean(axis=0)}"
     )
 
     return (
         scores,
-        aucs,
+        #aucs,
         confusion_matrices,
         evidences,
         test_labels,
         decision_scores,
-        roc_aucs,
+        #roc_aucs,
     )
 
 # %% set up function to run whole classification
@@ -383,7 +412,7 @@ def betweenSub_classification():
     print(f"Label shape: {stim_labels_allruns.shape}")
 
     # set up train and test data
-    bold_data, op_labels, subject_sample = betweenSub_operation_sample(
+    bold_data, group_labels, subject_sample = betweenSub_operation_sample(
         full_data, stim_labels_allruns
     )
 
@@ -392,29 +421,29 @@ def betweenSub_classification():
 
     (
         scores,
-        aucs,
+        #aucs,
         confusion_matrices,
         evidences,
         test_labels,
         decision_scores,
-        roc_aucs,
-    ) = betweenSub_decode_model(bold_data, op_labels, subject_sample)
+        #roc_aucs,
+    ) = betweenSub_decode_model(bold_data, group_labels, subject_sample)
 
     mean_score = scores.mean()
     print(f"Mean score: {mean_score}")
 
     # save aucs for each operation to csv in results folder of working directory
-    aucs_df = pd.DataFrame(columns=["Maintain", "Replace", "Suppress", "sub"])
-    aucs_df["Maintain"] = roc_aucs.loc[:, 0]
-    aucs_df["Replace"] = roc_aucs.loc[:, 1]
-    aucs_df["Suppress"] = roc_aucs.loc[:, 2]
-    aucs_df["sub"] = [*range(0, 5)]
+    #aucs_df = pd.DataFrame(columns=["Maintain", "Replace", "Suppress", "sub"])
+    #aucs_df["Maintain"] = roc_aucs.loc[:, 0]
+    #aucs_df["Replace"] = roc_aucs.loc[:, 1]
+    #aucs_df["Suppress"] = roc_aucs.loc[:, 2]
+    #aucs_df["sub"] = [*range(0, 5)]
 
     # Create average confusion matrix figure
     avg_cm = confusion_matrices.mean(axis=0)
 
     avg_disp = ConfusionMatrixDisplay(
-        confusion_matrix=avg_cm, display_labels=["Maintain", "Replace", "Suppress"]
+        confusion_matrix=avg_cm, display_labels=["Bad", "Good"]
     )
     avg_disp.plot(cmap=plt.cm.GnBu)
     plt.title(
@@ -426,3 +455,80 @@ def betweenSub_classification():
 
 # %% run first model (classification of all operations)
 betweenSub_classification()
+
+
+# %% add suppress-forget count to participant memory results
+filelist = [f for f in
+            os.listdir('/Users/cnj678/Desktop/data_ML_final/memory_results')
+            if
+            f.endswith('.csv')]
+
+for i in range(len(filelist)):
+  filename = ('/Users/cnj678/Desktop/data_ML_final/memory_results/' + filelist[i])
+
+  memory_data = pd.read_csv(filename)
+
+  participant = memory_data.iloc[0]['subject']
+
+  memory_data = memory_data.assign(Suppress_Forget=np.where(((memory_data['memory'] == 0) & (memory_data['condition_num'] == 3)), 1, 0))
+
+  memory_data.to_csv(f'/Users/cnj678/Desktop/data_ML_final/sub_mem_data/{participant}_mem_data.csv', index=False)
+
+# %% aggreagate memory results and find median for split
+mem_path = '/Users/cnj678/Desktop/data_ML_final/sub_mem_data/*.csv'
+mem_files = glob.glob(mem_path)
+mem_data_merge = pd.concat([pd.read_csv(mem_file) for mem_file in mem_files],
+                           ignore_index=True)
+
+agg_select = ['Suppress_Forget']
+
+agg_dict = {col: 'sum' for col in agg_select}
+rename_dict = {col: col.lower() + '_sum' for col in agg_select}
+
+data_agg = mem_data_merge.groupby(['subject']).agg(agg_dict).rename(columns=rename_dict).reset_index()
+
+
+median_value = data_agg['suppress_forget_sum'].median()
+print(median_value)
+
+
+
+# %%
+full_data = {}
+    for sub in subIDs:
+        full_data[f"{sub}"], _ = load_data(
+            directory=data_path,
+            subject_name=sub,
+            mask_name="wholebrain",
+            zscore_data=True,
+        )
+
+    # load labels
+    stim_labels_allruns = get_shifted_labels(task="study", shift_size_TR=shift_TR)
+    print(f"Label shape: {stim_labels_allruns.shape}")
+
+    # set up train and test data
+    bold_data, group_labels, subject_sample = betweenSub_operation_sample(
+        full_data, stim_labels_allruns
+    )
+
+# %%
+ps = PredefinedSplit(subject_sample)
+for train, test in ps.split():
+    train_data = bold_data[train]
+    test_data = bold_data[test]
+    train_label = group_labels[train]
+    test_label = group_labels[test]
+
+
+    model = LogisticRegression(penalty='l2' ,solver='lbfgs')
+
+
+    model.fit(train_data, train_label)
+
+
+    preds = model.predict(test_data)
+
+
+    score = model.score(test_data, test_label)
+    print(score)
