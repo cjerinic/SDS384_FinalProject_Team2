@@ -386,7 +386,7 @@ def betweenSub_classification():
     bold_data, op_labels, subject_sample = betweenSub_operation_sample(
         full_data, stim_labels_allruns
     )
-
+    
     # run model
     print("Running model...")
 
