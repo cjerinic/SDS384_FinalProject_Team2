@@ -282,6 +282,7 @@ def betweenSub_decode_model(bold_data, op_labels, subject_sample):
         Fselect_fpr = SelectFpr(f_classif, alpha=0.001).fit(train_data, train_label)
         bold_train_subject = Fselect_fpr.transform(train_data)
         bold_test_subject = Fselect_fpr.transform(test_data)
+        print(bold_train_subject.shape, bold_test_subject.shape)
 
         # train with selected penalty
         log_reg = LogisticRegression(penalty="l2", solver="lbfgs", C=50, max_iter=1000)
